@@ -1,0 +1,84 @@
+version: "3"
+x-airflow-common: &airflow-common
+  build: .
+  image: ${AIRFLOW_IMAGE_NAME:-extending_airflow:latest}
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:password123@postgres/goodair
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 10
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - /var/run/docker.sock:/var/run/docker.sock  # permet DockerOperator
+    - ./secrets/.env:/opt/airflow/.env:ro 
+  user: root
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: goodair
+    networks:
+      - project_default
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./inits/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d goodair"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - 8080:8080
+    networks:
+      - project_default
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    networks:
+      - project_default
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    command: version
+    networks:
+      - project_default
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_UPGRADE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+
+  last-app:
+    build: ./app
+    networks:
+      - project_default
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+networks:
+  project_default:
+    name: project_default
