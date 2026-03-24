@@ -18,7 +18,7 @@ def main():
     cursor = None
 
     try:
-        print("🔌 Connexion DB...")
+        print("Connexion DB...")
         conn = db_conn.conn()
         cursor = conn.cursor()
 
